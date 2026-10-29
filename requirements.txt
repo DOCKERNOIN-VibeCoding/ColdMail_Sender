@@ -1,0 +1,7 @@
+dnspython>=2.6
+flask>=3.0
+keyring>=25.0
+mammoth>=1.8
+markdown>=3.6
+openpyxl>=3.1
+mcp>=2.3,<3

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ColdMail Sender</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" type="image/png" href="/static/icon.png">
+</head>
+<body>
+<header>
+  <h1>ColdMail Sender</h1>
+  <nav>
+    <button data-tab="send" class="active">발송</button>
+    <button data-tab="lists">수신자 리스트</button>
+    <button data-tab="templates">메일 템플릿</button>
+    <button data-tab="log">발송 기록</button>
+    <button data-tab="settings">설정</button>
+  </nav>
+</header>
+
+<main>
+<!-- 발송 -->
+<section id="tab-send" class="tab active">
+  <div class="card" id="queue-card" hidden>
+    <h2>발송 대기 <small class="muted">Claude가 준비한 발송입니다. 불러와서 확인한 뒤 직접 발송하세요.</small></h2>
+    <div id="queue-items"></div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h2>1. 메일 구성</h2>
+      <label>템플릿 <select id="s-template"></select></label>
+      <label>수신자 리스트 <select id="s-list"></select></label>
+      <label>제목 <input id="s-subject" placeholder="예: [협업 제안] {{채널명}} 님께 드리는 제안"></label>
+      <div class="hint">치환 필드 (클릭하면 제목에 삽입): <span id="s-fields"></span></div>
+      <div class="field">
+        <b>첨부파일</b>
+        <label class="btn small">파일 추가<input type="file" id="s-attach-upload" multiple hidden></label>
+        <div id="s-attach"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="s-skip-sent" checked> 이전에 발송 성공한 주소는 기본 선택에서 제외</label>
+      <button id="s-prepare" class="primary">2. 수신자 확인 →</button>
+    </div>
+    <div class="card">
+      <h2>미리보기 <small id="pv-who" class="muted"></small></h2>
+      <div id="pv-subject" class="pv-subject"></div>
+      <iframe id="pv-frame" sandbox=""></iframe>
+    </div>
+  </div>
+
+  <div class="card" id="job-card" hidden>
+    <h2>발송 진행 <span id="job-status" class="badge info"></span></h2>
+    <div class="toolbar"><progress id="job-progress" value="0" max="1"></progress><button id="job-stop" class="danger">중지</button></div>
+    <div id="job-text" class="hint"></div>
+    <ul id="job-items"></ul>
+  </div>
+
+  <div class="card" id="s-recipients-card" hidden>
+    <h2>3. 수신자 <small id="s-count" class="muted"></small></h2>
+    <div class="toolbar">
+      <button id="s-all">전체 선택</button><button id="s-none">전체 해제</button>
+      <span class="spacer"></span>
+      <button id="s-test">테스트 발송 (내 메일로)</button>
+      <button id="s-start" class="primary">발송 시작</button>
+    </div>
+    <div class="hint">행을 클릭하면 해당 수신자 기준으로 미리보기가 바뀝니다.</div>
+    <div class="table-wrap"><table id="s-table"></table></div>
+  </div>
+</section>
+
+<!-- 수신자 리스트 -->
+<section id="tab-lists" class="tab">
+  <div class="card">
+    <div class="toolbar">
+      <select id="l-select"></select>
+      <button id="l-new">새 리스트</button>
+      <label class="btn">엑셀/CSV 가져오기<input type="file" id="l-import" accept=".xlsx,.csv" hidden></label>
+      <button id="l-gsheet">구글시트 가져오기</button>
+      <button id="l-resync" hidden>시트에서 다시 불러오기</button>
+      <button id="l-delete" class="danger">리스트 삭제</button>
+      <span class="spacer"></span>
+      <small id="l-count" class="muted"></small>
+      <button id="l-addrow">행 추가</button>
+      <button id="l-addcol">열 추가</button>
+      <button id="l-delrows">선택 행 삭제</button>
+      <button id="l-save" class="primary">저장</button>
+    </div>
+    <div class="hint">맨 윗줄은 열 이름입니다. <b>'이메일'</b> 열이 필요하고, 열 이름을 제목/본문에 <code>{{열이름}}</code> 으로 쓰면 수신자별 값으로 바뀝니다.
+      엑셀에서 여러 칸을 복사해 칸을 클릭하고 <b>Ctrl+V</b> 하면 그 위치부터 채워집니다 (머리글 칸에 붙이면 첫 줄이 열 이름).<br>
+      칸을 <b>더블클릭</b>하면 긴 글 편집창이 열립니다. 수신자마다 다른 내용은 <b>맞춤문단 1</b> ~ <b>맞춤문단 5</b> 열에 쓰고 템플릿에 <code>{{맞춤문단 1}}</code> … 으로 넣으세요
+      (줄바꿈 유지, 빈 맞춤문단은 그 문단을 빼고 발송).<br>
+      샘플 양식: <a href="/api/sample-list.xlsx" download>엑셀</a> · <a href="/api/sample-list.csv" download>CSV</a></div>
+    <div class="table-wrap"><table id="l-table" class="edit"></table></div>
+  </div>
+</section>
+
+<!-- 메일 템플릿 -->
+<section id="tab-templates" class="tab">
+  <div class="grid2">
+    <div class="card">
+      <div class="toolbar">
+        <select id="t-select"></select>
+        <button id="t-new">새 마크다운</button>
+        <label class="btn">파일 올리기 (.md/.docx)<input type="file" id="t-upload" accept=".md,.docx" hidden></label>
+        <button id="t-folder">폴더 열기</button>
+        <button id="t-delete" class="danger">삭제</button>
+      </div>
+      <div id="t-docx-note" class="hint" hidden>Word 문서는 여기서 편집할 수 없습니다. '폴더 열기'로 파일을 Word에서 직접 고친 뒤 이 탭을 다시 열면 반영됩니다.</div>
+      <textarea id="t-source" spellcheck="false" placeholder="마크다운으로 본문을 작성하세요. 예: 안녕하세요, {{채널명}} {{이름}} 님."></textarea>
+      <div class="toolbar"><span class="hint">줄바꿈은 그대로 유지됩니다. <b>굵게</b>: **텍스트**, 링크: [텍스트](https://...)<br>
+        조사는 자동으로 맞춰집니다: <code>{{채널명}}가</code> → 쯔양<b>이</b> / 안원잘부<b>가</b> (은/는, 을/를, 과/와, 으로/로 등. 치환 필드 바로 뒤에 붙여 쓰세요)<br>
+        채널명과 이름이 거의 같으면 하나만 나옵니다: <code>{{채널명}} {{이름}} 님</code> → 고재영TV + 고재영 = 고재영 님<br>
+        수신자마다 다른 내용은 리스트의 <b>맞춤문단 1~5</b> 열에 쓰고 여기에 <code>{{맞춤문단 1}}</code> … 을 각각 빈 줄로 띄운 단독 문단으로 넣으세요. 빈 것은 문단째 생략됩니다 (예: 협업제안_맞춤형.md)</span>
+        <span class="spacer"></span><button id="t-save" class="primary">저장</button></div>
+    </div>
+    <div class="card"><h2>미리보기</h2><iframe id="t-frame" sandbox=""></iframe></div>
+  </div>
+</section>
+
+<!-- 발송 기록 -->
+<section id="tab-log" class="tab">
+  <div class="card">
+    <div class="toolbar">
+      <input id="g-filter" placeholder="검색 (이메일, 이름, 제목...)">
+      <small id="g-count" class="muted"></small>
+      <span class="spacer"></span>
+      <button id="g-refresh">새로고침</button>
+    </div>
+    <div class="table-wrap"><table id="g-table"></table></div>
+  </div>
+</section>
+
+<!-- 설정 -->
+<section id="tab-settings" class="tab">
+  <div class="grid2">
+    <div class="card">
+      <h2>발송 서버 (SMTP)</h2>
+      <div class="toolbar"><span class="hint">프리셋:</span><button id="preset-gmail" class="small">Gmail / Google Workspace</button></div>
+      <label>SMTP 서버 <input id="set-smtp_host" placeholder="smtp.gmail.com"></label>
+      <div class="row">
+        <label>포트 <input id="set-smtp_port" type="number"></label>
+        <label>보안 <select id="set-smtp_security"><option value="starttls">STARTTLS (보통 587)</option><option value="ssl">SSL (보통 465)</option></select></label>
+      </div>
+      <label>계정 (로그인 아이디) <input id="set-username" autocomplete="off"></label>
+      <label>비밀번호 <input id="set-password" type="password" autocomplete="new-password"></label>
+      <div class="hint">비밀번호는 파일이 아니라 Windows 자격 증명 관리자에 저장됩니다. Gmail은 일반 비밀번호 대신 <b>앱 비밀번호</b>(Google 계정 → 보안 → 2단계 인증 → 앱 비밀번호)를 사용하세요.</div>
+      <div class="row">
+        <label>보내는 사람 이름 <input id="set-from_name" placeholder="홍길동 (블루트렌드)"></label>
+        <label>보내는 주소 <input id="set-from_email" placeholder="name@company.com"></label>
+      </div>
+    </div>
+    <div class="card">
+      <h2>보낸편지함 저장 (IMAP, 선택)</h2>
+      <label class="check"><input type="checkbox" id="set-imap_enabled"> 발송한 메일을 IMAP 보낸편지함에 저장</label>
+      <div class="hint">Gmail은 자동으로 보낸편지함에 저장되므로 끄세요(켜면 두 번 저장됨). 회사 메일은 보낸 기록이 남지 않는 경우가 많아 켜는 것을 권장합니다.</div>
+      <div class="row">
+        <label>IMAP 서버 <input id="set-imap_host" placeholder="imap.company.com"></label>
+        <label>포트 <input id="set-imap_port" type="number"></label>
+      </div>
+      <label>보낸편지함 폴더 <input id="set-imap_sent_folder" list="imap-folders"><datalist id="imap-folders"></datalist></label>
+
+      <h2>발송 간격</h2>
+      <div class="row">
+        <label>기본 최소 (초) <input id="set-base_delay_min" type="number" min="0"></label>
+        <label>기본 최대 (초) <input id="set-base_delay_max" type="number" min="0"></label>
+      </div>
+      <div class="row">
+        <label>Google·Microsoft 최소 (초) <input id="set-delay_min" type="number" min="0"></label>
+        <label>Google·Microsoft 최대 (초) <input id="set-delay_max" type="number" min="0"></label>
+      </div>
+      <div class="hint">모든 메일 사이에 기본 간격(5~20초 권장)을 무작위로 둡니다. 받는 메일 서버가 Google(Gmail·Workspace)이나 Microsoft(Outlook·365)이면
+        같은 회사로 가는 메일끼리는 더 긴 간격(30~90초 권장)을 두고, 그동안 다른 주소를 먼저 보냅니다. 너무 짧으면 스팸 판정이나 계정 일시 정지 위험이 커집니다.</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="toolbar">
+      <button id="set-save" class="primary">저장</button>
+      <button id="set-test">저장 후 연결 테스트</button>
+      <span id="set-result" class="hint"></span>
+    </div>
+  </div>
+</section>
+</main>
+
+<dialog id="cell-dialog">
+  <h2 id="cell-title"></h2>
+  <textarea id="cell-text" spellcheck="false"></textarea>
+  <div class="toolbar">
+    <span class="hint">Enter로 줄바꿈, 빈 줄로 문단을 나눕니다. 메일에도 그대로 반영됩니다. (Ctrl+Enter: 적용)</span>
+    <span class="spacer"></span>
+    <button id="cell-cancel">취소</button><button id="cell-ok" class="primary">적용</button>
+  </div>
+</dialog>
+
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
